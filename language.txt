@@ -3,7 +3,10 @@
 MNU_MULTIPP = "Multiplayer++ Options";
 
 MNU_MPPCONTROLS = "Multiplayer++ Controls";
+MNU_MPPSERVER = "Multiplayer++ Server Options";
 
 MNU_PING = "Ping";
 MNU_CLEARPINGS = "Clear Pings";
 MNU_TELEPORT = "Teleport to Ally";
+
+MNU_ALLOWTELE = "Allow players to teleport to allies";

@@ -541,7 +541,7 @@ class MultiplayerHandler : StaticEventHandler
 		else if (e.Name ~== "MPPTeleport")
 		{
 			if (multiplayer && !deathmatch)
-				TeleportToClosestAlly(e.Player);
+				TeleportToAlly(e.Player);
 		}
 	}
 }
@@ -552,10 +552,10 @@ extend class MultiplayerHandler
 
 	private int teleportCooldown[MAXPLAYERS];
 
-	void TeleportToClosestAlly(int pNum)
+	void TeleportToAlly(int pNum)
 	{
 		let player = players[pNum];
-		if (player.playerstate == PST_DEAD)
+		if (player.playerstate == PST_DEAD || !sv_allowteleport)
 			return;
 
 		if (teleportCooldown[pNum] > 0)

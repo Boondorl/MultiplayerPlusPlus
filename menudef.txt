@@ -15,6 +15,10 @@ OptionMenu "MultiplayerPPOptionsMenu"
 
 	StaticText "$MNU_MPPCONTROLS", 1
 	Control "$MNU_PING", "netevent MPPPing"
-	control "$MNU_CLEARPINGS", "netevent MPPClearPings"
+	Control "$MNU_CLEARPINGS", "netevent MPPClearPings"
 	Control "$MNU_TELEPORT", "netevent MPPTeleport"
+	
+	StaticText ""
+	StaticText "$MNU_MPPSERVER", 1
+	Option "$MNU_ALLOWTELE", "sv_allowteleport", "OnOff"
 }
