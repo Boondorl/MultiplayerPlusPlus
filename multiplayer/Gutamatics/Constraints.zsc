@@ -1,0 +1,1210 @@
+class MultiplayerGMVariable {
+	private uint id;
+
+	static MultiplayerGMVariable internalCreate(uint curId) {
+		let ret = new();
+		ret.id = curId;
+		return ret;
+	}
+
+	uint getId() { return self.id; }
+}
+class MultiplayerGMVariableHasher : MultiplayerGMHasher {
+	override uint hash(Object o) { return MultiplayerGMVariable(o).getId(); }
+	override bool eq(Object o0, Object o1) {
+		return MultiplayerGMVariable(o0).getId() == MultiplayerGMVariable(o1).getId();
+	}
+}
+
+struct MultiplayerGMVariableManager {
+	private uint curId;
+
+	MultiplayerGMVariable createVariable() {
+		let ret = MultiplayerGMVariable.internalCreate(self.curId);
+		self.curId += 1;
+		return ret;
+	}
+}
+
+class MultiplayerGMTerm {
+	MultiplayerGMVariable variable;
+	double coefficient;
+
+	static MultiplayerGMTerm create(MultiplayerGMVariable variable, double coefficient) {
+		let ret = new();
+		ret.variable = variable;
+		ret.coefficient = coefficient;
+		return ret;
+	}
+}
+
+class MultiplayerGMExpr {
+	Array<MultiplayerGMTerm> terms;
+	double constant;
+
+	static MultiplayerGMExpr fromConstant(double v) {
+		let ret = new();
+		ret.constant = v;
+		return ret;
+	}
+	static MultiplayerGMExpr c(double v) { return MultiplayerGMExpr.fromConstant(v); }
+
+	static MultiplayerGMExpr fromTerm(MultiplayerGMTerm term) {
+		let ret = new();
+		ret.terms.push(term);
+		return ret;
+	}
+
+	static MultiplayerGMExpr fromVariable(MultiplayerGMVariable variable) {
+		let ret = new();
+		ret.terms.push(MultiplayerGMTerm.create(variable, 1.0));
+		return ret;
+	}
+	static MultiplayerGMExpr v(MultiplayerGMVariable variable) { return MultiplayerGMExpr.fromVariable(variable); }
+
+	static MultiplayerGMExpr create() {
+		let ret = new();
+		return ret;
+	}
+
+	void negate() {
+		self.constant = -self.constant;
+		for (let i = 0; i < self.terms.size(); i++) {
+			let t = self.terms[i];
+			t.coefficient = -t.coefficient;
+		}
+	}
+
+	MultiplayerGMExpr addAssignVariable(MultiplayerGMVariable variable, double coefficient = 1.0) {
+		self.terms.push(MultiplayerGMTerm.create(variable, coefficient));
+		return self;
+	}
+	MultiplayerGMExpr addAssignConstant(double constant) {
+		self.constant += constant;
+		return self;
+	}
+	MultiplayerGMExpr addAssignExpression(MultiplayerGMExpr e) {
+		for (let i = 0; i < e.terms.size(); i++) {
+			self.terms.push(e.terms[i]);
+		}
+		self.constant += e.constant;
+		return self;
+	}
+	MultiplayerGMExpr mulAssign(double coeff) {
+		for (let i = 0; i < self.terms.size(); i++) {
+			self.terms[i].coefficient *= coeff;
+		}
+		self.constant *= coeff;
+		return self;
+	}
+}
+
+struct MultiplayerGMStrength {
+	static double create(double a, double b, double c, double w) {
+		return
+			clamp(a * w, 0.0, 1000.0) * 1000000.0 +
+			clamp(b * w, 0.0, 1000.0) * 1000.0 +
+			clamp(c * w, 0.0, 1000.0);
+	}
+
+	const REQUIRED = 1001001000.0;
+	const STRONG = 1000000.0;
+	const MEDIUM = 1000.0;
+	const WEAK = 1.0;
+
+	static double clip(double s) {
+		return clamp(s, 0.0, REQUIRED);
+	}
+}
+
+enum MultiplayerGMRel {
+	MultiplayerGMRel_LEq,
+	MultiplayerGMRel_Eq,
+	MultiplayerGMRel_GEq,
+}
+
+struct MultiplayerGMConstraintManager {
+	private uint curId;
+
+	MultiplayerGMConstraint createConstraint(MultiplayerGMExpr e, MultiplayerGMRel op, double strength) {
+		let ret = MultiplayerGMConstraint.internalCreate(e, op, strength, self.curId);
+		self.curId += 1;
+		return ret;
+	}
+}
+
+class MultiplayerGMConstraint {
+	private MultiplayerGMExpr expression;
+	private double strength;
+	private MultiplayerGMRel op;
+	private uint id;
+
+	static MultiplayerGMConstraint internalCreate(MultiplayerGMExpr e, MultiplayerGMRel op, double strength, uint curId) {
+		let ret = new();
+		ret.expression = e;
+		ret.op = op;
+		ret.strength = strength;
+		ret.id = curId;
+		return ret;
+	}
+
+	MultiplayerGMExpr getExpr() { return self.expression; }
+	MultiplayerGMRel getOp() { return self.op; }
+	double getStrength() { return self.strength; }
+	uint getId() { return self.id; }
+}
+class MultiplayerGMConstraintHasher : MultiplayerGMHasher {
+	override uint hash(Object o) { return MultiplayerGMConstraint(o).getId(); }
+	override bool eq(Object o0, Object o1) {
+		return MultiplayerGMConstraint(o0).getId() == MultiplayerGMConstraint(o1).getId();
+	}
+}
+
+class MultiplayerGMConstraintBuilderWithRhs {
+	MultiplayerGMExpr lhs;
+	MultiplayerGMExpr rhs;
+	MultiplayerGMRel rel;
+	double strength;
+}
+
+enum MultiplayerGMSymbolKind {
+	MultiplayerGMSymbolKind_Invalid,
+	MultiplayerGMSymbolKind_External,
+	MultiplayerGMSymbolKind_Slack,
+	MultiplayerGMSymbolKind_Error,
+	MultiplayerGMSymbolKind_Dummy,
+}
+
+class MultiplayerGMSymbol {
+	uint id;
+	MultiplayerGMSymbolKind kind;
+
+	static MultiplayerGMSymbol invalid() {
+		let ret = new();
+		ret.id = 0;
+		ret.kind = MultiplayerGMSymbolKind_Invalid;
+		return ret;
+	}
+
+	static MultiplayerGMSymbol create(uint id, MultiplayerGMSymbolKind kind) {
+		let ret = new();
+		ret.id = id;
+		ret.kind = kind;
+		return ret;
+	}
+
+	MultiplayerGMSymbol clone() {
+		let ret = new();
+		ret.id = self.id;
+		ret.kind = self.kind;
+		return ret;
+	}
+
+	String repr() {
+		let ret = "Symbol(";
+		ret.appendFormat("%d, ", self.id);
+		switch (self.kind) {
+			case MultiplayerGMSymbolKind_Invalid:  ret.appendFormat("Invalid"); break;
+			case MultiplayerGMSymbolKind_External: ret.appendFormat("External"); break;
+			case MultiplayerGMSymbolKind_Slack:    ret.appendFormat("Slack"); break;
+			case MultiplayerGMSymbolKind_Error:    ret.appendFormat("Error"); break;
+			case MultiplayerGMSymbolKind_Dummy:    ret.appendFormat("Dummy"); break;
+		}
+		ret.appendFormat(")");
+		return ret;
+	}
+}
+
+class MultiplayerGMSymbolHasher : MultiplayerGMHasher {
+	override uint hash(Object o) {
+		let o = MultiplayerGMSymbol(o);
+		let seed = o.id;
+		hashCombine(seed, o.kind);
+		return seed;
+	}
+	override bool eq(Object o0, Object o1) {
+		let o0 = MultiplayerGMSymbol(o0);
+		let o1 = MultiplayerGMSymbol(o1);
+
+		return
+			o0.id == o1.id &&
+			o0.kind == o1.kind;
+	}
+}
+
+class MultiplayerGMRow {
+	MultiplayerGMHashMap/*<Symbol, BoxedDouble>*/ cells;
+	double constant;
+
+	static MultiplayerGMRow create(double constant) {
+		let ret = new();
+		ret.cells = MultiplayerGMHashMap.create(new("MultiplayerGMSymbolHasher"));
+		ret.constant = constant;
+		return ret;
+	}
+
+	MultiplayerGMRow clone() {
+		let ret = new();
+		ret.cells = MultiplayerGMHashMap.create(new("MultiplayerGMSymbolHasher"));
+		let iter = self.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let k = MultiplayerGMSymbol(ko);
+			let v = MultiplayerGMBoxedDouble(vo);
+
+			ret.cells.insert(k.clone(), v.clone());
+		}
+		ret.constant = self.constant;
+		return ret;
+	}
+
+	double add(double v) {
+		self.constant += v;
+		return self.constant;
+	}
+
+	void insertSymbol(MultiplayerGMSymbol s, double coefficient) {
+		let g = self.cells.get(s);
+		if (g is "MultiplayerGMHashUnoccupied") {
+			if (!MultiplayerGMGlobalMaths.nearZero(coefficient)) {
+				self.cells.insert(s, MultiplayerGMBoxedDouble.create(coefficient));
+			}
+		} else {
+			let g = MultiplayerGMBoxedDouble(g);
+			g.val += coefficient;
+			if (MultiplayerGMGlobalMaths.nearZero(g.val)) {
+				self.cells.remove(s);
+			}
+		}
+	}
+
+	bool insertRow(MultiplayerGMRow other, double coefficient) {
+		let constantDiff = other.constant * coefficient;
+		self.constant += constantDiff;
+		let iter = other.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let s = MultiplayerGMSymbol(ko);
+			let v = MultiplayerGMBoxedDouble(vo).val;
+
+			self.insertSymbol(s, v * coefficient);
+		}
+		return constantDiff != 0.0;
+	}
+
+	void remove(MultiplayerGMSymbol s) {
+		self.cells.remove(s);
+	}
+
+	void reverseSign() {
+		self.constant = -self.constant;
+		let iter = self.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+			let v = MultiplayerGMBoxedDouble(vo);
+			v.val = -v.val;
+		}
+	}
+
+	void solveForSymbol(MultiplayerGMSymbol s) {
+		let e = MultiplayerGMBoxedDouble(self.cells.remove(s)).val;
+		let coeff = -1.0 / e;
+		self.constant *= coeff;
+		let iter = self.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+			let v = MultiplayerGMBoxedDouble(vo);
+			v.val *= coeff;
+		}
+	}
+
+	void solveForSymbols(MultiplayerGMSymbol lhs, MultiplayerGMSymbol rhs) {
+		self.insertSymbol(lhs, -1.0);
+		self.solveForSymbol(rhs);
+	}
+
+	double coefficientFor(MultiplayerGMSymbol s) {
+		let v = self.cells.get(s);
+		return (!(v is "MultiplayerGMHashUnoccupied")) ? MultiplayerGMBoxedDouble(v).val : 0.0;
+	}
+
+	bool substitute(MultiplayerGMSymbol s, MultiplayerGMRow row) {
+		let e = self.cells.remove(s);
+		if (!(e is "MultiplayerGMHashUnoccupied")) {
+			let coeff = MultiplayerGMBoxedDouble(e).val;
+			return self.insertRow(row, coeff);
+		} else {
+			return false;
+		}
+	}
+}
+
+enum MultiplayerGMAddConstraintError {
+	MultiplayerGMAddConstraintError_None,
+	MultiplayerGMAddConstraintError_DuplicateConstraint,
+	MultiplayerGMAddConstraintError_UnsatisfiableConstraint,
+}
+
+enum MultiplayerGMRemoveConstraintError {
+	MultiplayerGMRemoveConstraintError_None,
+	MultiplayerGMRemoveConstraintError_UnknownConstraint,
+}
+
+enum MultiplayerGMAddEditVariableError {
+	MultiplayerGMAddEditVariableError_None,
+	MultiplayerGMAddEditVariableError_DuplicateEditVariable,
+	MultiplayerGMAddEditVariableError_BadRequiredStrength,
+}
+
+enum MultiplayerGMRemoveEditVariableError {
+	MultiplayerGMRemoveEditVariableError_None,
+	MultiplayerGMRemoveEditVariableError_UnknownEditVariable,
+}
+
+enum MultiplayerGMSuggestValueError {
+	MultiplayerGMSuggestValueError_None,
+	MultiplayerGMSuggestValueError_UnknownEditVariable,
+}
+
+class MultiplayerGMTag {
+	MultiplayerGMSymbol marker;
+	MultiplayerGMSymbol other;
+
+	static MultiplayerGMTag create(MultiplayerGMSymbol marker = NULL, MultiplayerGMSymbol other = NULL) {
+		let ret = new();
+		ret.marker = marker;
+		ret.other = other;
+		return ret;
+	}
+}
+
+class MultiplayerGMEditInfo {
+	MultiplayerGMTag tag;
+	MultiplayerGMConstraint constraint;
+	double constant;
+
+	static MultiplayerGMEditInfo create(MultiplayerGMTag tag, MultiplayerGMConstraint constraint, double constant) {
+		let ret = new();
+		ret.tag = tag;
+		ret.constraint = constraint;
+		ret.constant = constant;
+		return ret;
+	}
+}
+
+class MultiplayerGMVarDataEntry {
+	double value;
+	MultiplayerGMSymbol symbol;
+	uint count;
+
+	static MultiplayerGMVarDataEntry create(double value, MultiplayerGMSymbol symbol, uint count) {
+		let ret = new();
+		ret.value = value;
+		ret.symbol = symbol;
+		ret.count = count;
+		return ret;
+	}
+}
+
+class MultiplayerGMPublicChangesEntry {
+	MultiplayerGMVariable variable;
+	double value;
+
+	static MultiplayerGMPublicChangesEntry create(MultiplayerGMVariable variable, double value) {
+		let ret = new();
+		ret.variable = variable;
+		ret.value = value;
+		return ret;
+	}
+}
+
+class MultiplayerGMSolver {
+	private MultiplayerGMHashMap/*<Constraint, Tag>*/ cns;
+	private MultiplayerGMHashMap/*<Variable, VarDataEntry>*/ varData;
+	private MultiplayerGMHashMap/*<Symbol, Variable>*/ varForSymbol;
+	private Array<MultiplayerGMPublicChangesEntry> publicChanges;
+	private MultiplayerGMHashSet/*<Variable>*/ changed;
+	private bool shouldClearChanges;
+	private MultiplayerGMHashMap/*<Symbol, Row>*/ rows;
+	private MultiplayerGMHashMap/*<Variable, EditInfo>*/ edits;
+	private Array<MultiplayerGMSymbol> infeasibleRows;
+	private MultiplayerGMRow objective;
+	private /* Nullable */ MultiplayerGMRow artificial;
+	private uint idTick;
+
+	private MultiplayerGMVariableManager variableManager;
+	private MultiplayerGMConstraintManager constraintManager;
+
+	static MultiplayerGMSolver create() {
+		let constraintHasher = new("MultiplayerGMConstraintHasher");
+		let variableHasher = new("MultiplayerGMVariableHasher");
+		let symbolHasher = new("MultiplayerGMSymbolHasher");
+
+		let ret = new();
+		ret.cns = MultiplayerGMHashMap.create(constraintHasher);
+		ret.varData = MultiplayerGMHashMap.create(variableHasher);
+		ret.varForSymbol = MultiplayerGMHashMap.create(symbolHasher);
+		/* ret.publicChanges = default; */
+		ret.changed = MultiplayerGMHashSet.create(variableHasher);
+		ret.shouldClearChanges = false;
+		ret.rows = MultiplayerGMHashMap.create(symbolHasher);
+		ret.edits = MultiplayerGMHashMap.create(variableHasher);
+		/* ret.infeasibleRows = default; */
+		ret.objective = MultiplayerGMRow.create(0.0);
+		ret.artificial = NULL;
+		ret.idTick = 1;
+
+		return ret;
+	}
+
+	MultiplayerGMVariable createVariable() {
+		return self.variableManager.createVariable();
+	}
+
+	MultiplayerGMAddConstraintError, MultiplayerGMConstraint addConstraintFromRelation(
+		MultiplayerGMExpr lhs,
+		Name op,
+		MultiplayerGMExpr rhs,
+		double strength = MultiplayerGMStrength.REQUIRED
+	) {
+		rhs.negate();
+		lhs.addAssignExpression(rhs);
+		if (op != '==' && op != '<=' && op != '>=') {
+			throwAbortException("invalid op string '%s'", op);
+		}
+		let op = (op == '==') ? MultiplayerGMRel_Eq : (op == '<=') ? MultiplayerGMRel_Leq : MultiplayerGMRel_Geq;
+		let constraint = self.constraintManager.createConstraint(lhs, op, strength);
+		return self.addConstraint(constraint), constraint;
+	}
+
+	MultiplayerGMAddConstraintError addConstraint(MultiplayerGMConstraint constraint) {
+		if (self.cns.containsKey(constraint)) {
+			return MultiplayerGMAddConstraintError_DuplicateConstraint;
+		}
+
+		MultiplayerGMRow row; MultiplayerGMTag tag;
+		[row, tag] = self.createRow(constraint);
+		let subject = chooseSubject(row, tag);
+
+		if (subject.kind == MultiplayerGMSymbolKind_Invalid && allDummies(row)) {
+			if (!MultiplayerGMGlobalMaths.nearZero(row.constant)) {
+				return MultiplayerGMAddConstraintError_UnsatisfiableConstraint;
+			} else {
+				subject = tag.marker;
+			}
+		}
+		if (subject.kind == MultiplayerGMSymbolKind_Invalid) {
+			if (!self.addWithArtificialVariable(row)) {
+				return MultiplayerGMAddConstraintError_UnsatisfiableConstraint;
+			}
+		} else {
+			row.solveForSymbol(subject);
+			self.substitute(subject, row);
+
+			if (subject.kind == MultiplayerGMSymbolKind_External && row.constant != 0.0) {
+				let v = MultiplayerGMVariable(self.varForSymbol.get(subject));
+				self.varChanged(v);
+			}
+			self.rows.insert(subject, row);
+		}
+
+		self.cns.insert(constraint, tag);
+
+		let objective = self.objective;
+		self.optimise(objective);
+
+		return MultiplayerGMAddConstraintError_None;
+	}
+
+	MultiplayerGMRemoveConstraintError removeConstraint(MultiplayerGMConstraint constraint) {
+		let t = self.cns.remove(constraint);
+		if (t is "MultiplayerGMHashUnoccupied") {
+			return MultiplayerGMRemoveConstraintError_UnknownConstraint;
+		}
+		let tag = MultiplayerGMTag(t);
+
+		self.removeConstraintEffects(constraint, tag);
+
+		if (self.rows.remove(tag.marker) is "MultiplayerGMHashUnoccupied") {
+			MultiplayerGMSymbol leaving; MultiplayerGMRow row;
+			[leaving, row] = self.getMarkerLeavingRow(tag.marker);
+			row.solveForSymbols(leaving, tag.marker);
+			self.substitute(tag.marker, row);
+		}
+
+		let objective = self.objective;
+		self.optimise(objective);
+
+		let cexpr = constraint.getExpr();
+		for (let i = 0; i < cexpr.terms.size(); i++) {
+			let term = cexpr.terms[i];
+			if (!MultiplayerGMGlobalMaths.nearZero(term.coefficient)) {
+				let shouldRemove = false;
+				let v = self.varData.get(term.variable);
+				if (!(v is "MultiplayerGMHashUnoccupied")) {
+					let v = MultiplayerGMVarDataEntry(v);
+					v.count -= 1;
+					shouldRemove = v.count == 0;
+				}
+				if (shouldRemove) {
+					self.varForSymbol.remove(MultiplayerGMVarDataEntry(self.varData.get(term.variable)).symbol);
+					self.varData.remove(term.variable);
+				}
+			}
+		}
+
+		return MultiplayerGMRemoveConstraintError_None;
+	}
+
+	bool hasConstraint(MultiplayerGMConstraint constraint) {
+		return self.cns.containsKey(constraint);
+	}
+
+	MultiplayerGMAddEditVariableError addEditVariable(MultiplayerGMVariable v, double strength) {
+		if (self.edits.containsKey(v)) {
+			return MultiplayerGMAddEditVariableError_DuplicateEditVariable;
+		}
+		let strength = MultiplayerGMStrength.clip(strength);
+		if (strength == MultiplayerGMStrength.REQUIRED) {
+			return MultiplayerGMAddEditVariableError_BadRequiredStrength;
+		}
+		let cn = self.constraintManager.createConstraint(
+			MultiplayerGMExpr.fromTerm(MultiplayerGMTerm.create(v, 1.0)),
+			MultiplayerGMRel_Eq,
+			strength
+		);
+		{
+			let err = self.addConstraint(cn);
+			if (err != 0) { throwAbortException("shouldn't happen"); }
+		}
+		self.edits.insert(
+			v,
+			MultiplayerGMEditInfo.create(
+				MultiplayerGMTag(self.cns.get(cn)),
+				cn,
+				0.0
+			)
+		);
+
+		return MultiplayerGMAddEditVariableError_None;
+	}
+
+	MultiplayerGMRemoveEditVariableError removeEditVariable(MultiplayerGMVariable v) {
+		let e = self.edits.remove(v);
+		if (!(e is "MultiplayerGMHashUnoccupied")) {
+			let constraint = MultiplayerGMEditInfo(e).constraint;
+			let err = self.removeConstraint(constraint);
+			if (err == MultiplayerGMRemoveConstraintError_UnknownConstraint) {
+				throwAbortException("Edit constraint not in system.");
+			}
+			return MultiplayerGMRemoveEditVariableError_None;
+		} else {
+			return MultiplayerGMRemoveEditVariableError_UnknownEditVariable;
+		}
+	}
+
+	bool hasEditVariable(MultiplayerGMVariable v) {
+		return self.edits.containsKey(v);
+	}
+
+	MultiplayerGMSuggestValueError suggestValue(MultiplayerGMVariable variable, double value) {
+		let i = self.edits.get(variable);
+		if (i is "MultiplayerGMHashUnoccupied") {
+			return MultiplayerGMSuggestValueError_UnknownEditVariable;
+		}
+		let info = MultiplayerGMEditInfo(i);
+		let infoTagMarker = info.tag.marker;
+		let infoTagOther = info.tag.other;
+		let delta = value - info.constant;
+		info.constant = value;
+
+		{
+			let rm = self.rows.get(infoTagMarker);
+			let ro = self.rows.get(infoTagOther);
+			if (!(rm is "MultiplayerGMHashUnoccupied")) {
+				let row = MultiplayerGMRow(rm);
+				if (row.add(-delta) < 0.0) {
+					infeasibleRows.push(infoTagMarker);
+				}
+			} else if (!(ro is "MultiplayerGMHashUnoccupied")) {
+				let row = MultiplayerGMRow(ro);
+				if (row.add(delta) < 0.0) {
+					infeasibleRows.push(infoTagOther);
+				}
+			} else {
+				let iter = self.rows.iter();
+				while (true) {
+					Object ko, vo;
+					[ko, vo] = iter.next();
+					if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+					let symbol = MultiplayerGMSymbol(ko);
+					let row = MultiplayerGMRow(vo);
+
+					let coeff = row.coefficientFor(infoTagMarker);
+					let diff = delta * coeff;
+					if (diff != 0.0 && symbol.kind == MultiplayerGMSymbolKind_External) {
+						let v = MultiplayerGMVariable(self.varForSymbol.get(symbol));
+						if (self.shouldClearChanges) {
+							self.changed.clear();
+							self.shouldClearChanges = false;
+						}
+						self.changed.insert(v);
+					}
+					if (
+						coeff != 0.0 &&
+						row.add(diff) < 0.0 &&
+						symbol.kind != MultiplayerGMSymbolKind_External
+					) {
+						infeasibleRows.push(symbol);
+					}
+				}
+			}
+		}
+
+		self.dualOptimise();
+
+		return MultiplayerGMSuggestValueError_None;
+	}
+
+	private void varChanged(MultiplayerGMVariable v) {
+		if (self.shouldClearChanges) {
+			self.changed.clear();
+			self.shouldClearChanges = false;
+		}
+		self.changed.insert(v);
+	}
+
+	void fetchChanges(out Array<MultiplayerGMPublicChangesEntry> ret) {
+		if (self.shouldClearChanges) {
+			self.changed.clear();
+			self.shouldClearChanges = false;
+		} else {
+			self.shouldClearChanges = true;
+		}
+		self.publicChanges.clear();
+
+		let iter = self.changed.iter();
+		while (true) {
+			let vo = iter.next();
+			if (vo is "MultiplayerGMHashUnoccupied") { break; }
+			let v = MultiplayerGMVariable(vo);
+			
+			let vd = self.varData.get(v);
+			if (!(vd is "MultiplayerGMHashUnoccupied")) {
+				let varData = MultiplayerGMVarDataEntry(vd);
+				let r = self.rows.get(varData.symbol);
+				let newValue = 0.0;
+				if (!(r is "MultiplayerGMHashUnoccupied")) {
+					newValue = MultiplayerGMRow(r).constant;
+				}
+				let oldValue = varData.value;
+				if (oldValue != newValue) {
+					self.publicChanges.push(
+						MultiplayerGMPublicChangesEntry.create(v, newValue)
+					);
+					varData.value = newValue;
+				}
+			}
+		}
+
+		ret.copy(self.publicChanges);
+	}
+
+	void reset() {
+		self.rows.clear();
+		self.cns.clear();
+		self.varData.clear();
+		self.varForSymbol.clear();
+		self.changed.clear();
+		self.shouldClearChanges = false;
+		self.edits.clear();
+		self.infeasibleRows.clear();
+		self.objective = MultiplayerGMRow.create(0.0);
+		self.artificial = NULL;
+		self.idTick = 1;
+	}
+
+	private MultiplayerGMSymbol getVarSymbol(MultiplayerGMVariable v) {
+		MultiplayerGMVarDataEntry value;
+		let vd = self.varData.get(v);
+		if (!(vd is "MultiplayerGMHashUnoccupied")) {
+			value = MultiplayerGMVarDataEntry(vd);
+		} else {
+			let s = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_External);
+			self.varForSymbol.insert(s, v);
+			self.idTick += 1;
+			value = MultiplayerGMVarDataEntry.create(double.NAN, s, 0);
+			self.varData.insert(v, value);
+		}
+		value.count += 1;
+		return value.symbol;
+	}
+
+	private MultiplayerGMRow, MultiplayerGMTag createRow(MultiplayerGMConstraint constraint) {
+		let expr = constraint.getExpr();
+		let row = MultiplayerGMRow.create(expr.constant);
+		for (let i = 0; i < expr.terms.size(); i++) {
+			let term = expr.terms[i]; 
+			if (!MultiplayerGMGlobalMaths.nearZero(term.coefficient)) {
+				let symbol = self.getVarSymbol(term.variable);
+				let o = self.rows.get(symbol);
+				if (!(o is "MultiplayerGMHashUnoccupied")) {
+					let otherRow = MultiplayerGMRow(o);
+					row.insertRow(otherRow, term.coefficient);
+				} else {
+					row.insertSymbol(symbol, term.coefficient);
+				}
+			}
+		}
+
+		let objective = self.objective;
+
+		MultiplayerGMTag tag;
+		let constraintOp = constraint.getOp();
+		switch (constraintOp) {
+		case MultiplayerGMRel_Geq:
+		case MultiplayerGMRel_Leq: {
+			let coeff = (constraintOp == MultiplayerGMRel_Leq) ? 1.0 : -1.0;
+			let slack = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Slack);
+			self.idTick += 1;
+			row.insertSymbol(slack, coeff);
+			let constraintStrength = constraint.getStrength();
+			if (constraintStrength < MultiplayerGMStrength.REQUIRED) {
+				let error = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Error);
+				self.idTick += 1;
+				row.insertSymbol(error, -coeff);
+				objective.insertSymbol(error, constraintStrength);
+				tag = MultiplayerGMTag.create(
+					marker: slack,
+					other: error
+				);
+			} else {
+				tag = MultiplayerGMTag.create(
+					marker: slack,
+					other: MultiplayerGMSymbol.invalid()
+				);
+			}
+			break;
+		}
+		case MultiplayerGMRel_Eq: {
+			let constraintStrength = constraint.getStrength();
+			if (constraintStrength < MultiplayerGMStrength.REQUIRED) {
+				let errplus = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Error);
+				self.idTick += 1;
+				let errminus = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Error);
+				self.idTick += 1;
+				row.insertSymbol(errplus,  -1.0);
+				row.insertSymbol(errminus,  1.0);
+				objective.insertSymbol(errplus, constraintStrength);
+				objective.insertSymbol(errminus, constraintStrength);
+				tag = MultiplayerGMTag.create(
+					marker: errplus,
+					other: errminus
+				);
+			} else {
+				let dummy = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Dummy);
+				self.idTick += 1;
+				row.insertSymbol(dummy, 1.0);
+				tag = MultiplayerGMTag.create(
+					marker: dummy,
+					other: MultiplayerGMSymbol.invalid()
+				);
+			}
+			break;
+		}
+		default:
+			throwAbortException("shouldn't happen");
+		}
+
+		if (row.constant < 0.0) {
+			row.reverseSign();
+		}
+		return row, tag;
+	}
+
+	static private MultiplayerGMSymbol chooseSubject(MultiplayerGMRow row, MultiplayerGMTag tag) {
+		let iter = row.cells.iter();
+		while (true) {
+			let ko = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+			let s = MultiplayerGMSymbol(ko);
+
+			if (s.kind == MultiplayerGMSymbolKind_External) {
+				return s;
+			}
+		}
+		if (tag.marker.kind == MultiplayerGMSymbolKind_Slack || tag.marker.kind == MultiplayerGMSymbolKind_Error) {
+			if (row.coefficientFor(tag.marker) < 0.0) {
+				return tag.marker;
+			}
+		}
+		if (tag.other.kind == MultiplayerGMSymbolKind_Slack || tag.other.kind == MultiplayerGMSymbolKind_Error) {
+			if (row.coefficientFor(tag.other) < 0.0) {
+				return tag.other;
+			}
+		}
+		return MultiplayerGMSymbol.invalid();
+	}
+
+	private bool addWithArtificialVariable(MultiplayerGMRow row) {
+		let art = MultiplayerGMSymbol.create(self.idTick, MultiplayerGMSymbolKind_Slack);
+		self.idTick += 1;
+		self.rows.insert(art, row.clone());
+		self.artificial = row.clone();
+
+		let artificial = self.artificial;
+		self.optimise(artificial);
+		let success = MultiplayerGMGlobalMaths.nearZero(artificial.constant);
+		self.artificial = NULL;
+
+		let r = self.rows.remove(art);
+		if (!(r is "MultiplayerGMHashUnoccupied")) {
+			let row = MultiplayerGMRow(r);
+			if (row.cells.isEmpty()) {
+				return success;
+			}
+			let entering = anyPivotableSymbol(row);
+			if (entering.kind == MultiplayerGMSymbolKind_Invalid) {
+				return false;
+			}
+			row.solveForSymbols(art, entering);
+			self.substitute(entering, row);
+			self.rows.insert(entering, row);
+		}
+
+		let iter = self.rows.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let row = MultiplayerGMRow(vo);
+
+			row.remove(art);
+		}
+		self.objective.remove(art);
+		return success;
+	}
+
+	private void substitute(MultiplayerGMSymbol symbol, MultiplayerGMRow row) {
+		let iter = self.rows.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let otherSymbol = MultiplayerGMSymbol(ko);
+			let otherRow = MultiplayerGMRow(vo);
+
+			let constantChanged = otherRow.substitute(symbol, row);
+			if (otherSymbol.kind == MultiplayerGMSymbolKind_External && constantChanged) {
+				let v = MultiplayerGMVariable(self.varForSymbol.get(otherSymbol));
+				if (self.shouldClearChanges) {
+					self.changed.clear();
+					self.shouldClearChanges = false;
+				}
+				self.changed.insert(v);
+			}
+			if (otherSymbol.kind != MultiplayerGMSymbolKind_External && otherRow.constant < 0.0) {
+				self.infeasibleRows.push(otherSymbol);
+			}
+		}
+		self.objective.substitute(symbol, row);
+		if (self.artificial != NULL) {
+			let artificial = self.artificial;
+			artificial.substitute(symbol, row);
+		}
+	}
+
+	private void optimise(MultiplayerGMRow objective) {
+		while (true) {
+			let entering = getEnteringSymbol(objective);
+			if (entering.kind == MultiplayerGMSymbolKind_Invalid) {
+				return;
+			}
+			MultiplayerGMSymbol leaving;
+			MultiplayerGMRow row;
+			[leaving, row] = self.getLeavingRow(entering);
+			if (leaving == NULL) {
+				throwAbortException("internal solver error: the objective is unbounded");
+			}
+			row.solveForSymbols(leaving, entering);
+			self.substitute(entering, row);
+			if (entering.kind == MultiplayerGMSymbolKind_External && row.constant != 0.0) {
+				let v = MultiplayerGMVariable(self.varForSymbol.get(entering));
+				self.varChanged(v);
+			}
+			self.rows.insert(entering, row);
+		}
+	}
+
+	private void dualOptimise() {
+		while (self.infeasibleRows.size() != 0u) {
+			let leaving = self.infeasibleRows[self.infeasibleRows.size() - 1];
+			self.infeasibleRows.pop();
+
+			MultiplayerGMRow row;
+			let e = self.rows.get(leaving);
+			if (!(e is "MultiplayerGMHashUnoccupied")) {
+				let entry = MultiplayerGMRow(e);
+				if (entry.constant < 0.0) {
+					row = entry;
+					self.rows.remove(leaving);
+				} else {
+					row = NULL;
+				}
+			} else {
+				row = NULL;
+			}
+			if (row != NULL) {
+				let entering = self.getDualEnteringSymbol(row);
+				if (entering.kind == MultiplayerGMSymbolKind_Invalid) {
+					throwAbortException("internal solver error: dual optimise failed");
+				}
+				row.solveForSymbols(leaving, entering);
+				self.substitute(entering, row);
+				if (entering.kind == MultiplayerGMSymbolKind_External && row.constant != 0.0) {
+					let v = MultiplayerGMVariable(self.varForSymbol.get(entering));
+					self.varChanged(v);
+				}
+				self.rows.insert(entering, row);
+			}
+		}
+	}
+
+	private MultiplayerGMSymbol getEnteringSymbol(MultiplayerGMRow objective) {
+		let iter = objective.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let value = MultiplayerGMBoxedDouble(vo).val;
+
+			if (symbol.kind != MultiplayerGMSymbolKind_Dummy && value < 0.0) {
+				return symbol;
+			}
+		}
+		return MultiplayerGMSymbol.invalid();
+	}
+
+	private MultiplayerGMSymbol getDualEnteringSymbol(MultiplayerGMRow row) {
+		let entering = MultiplayerGMSymbol.invalid();
+		let ratio = double.INFINITY;
+		let objective = self.objective;
+		let iter = row.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let value = MultiplayerGMBoxedDouble(vo).val;
+
+			if (value > 0.0 && symbol.kind != MultiplayerGMSymbolKind_Dummy) {
+				let coeff = objective.coefficientFor(symbol);
+				let r = coeff / value;
+				if (r < ratio) {
+					ratio = r;
+					entering = symbol;
+				}
+			}
+		}
+		return entering;
+	}
+
+	private static MultiplayerGMSymbol anyPivotableSymbol(MultiplayerGMRow row) {
+		let iter = row.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+
+			if (symbol.kind == MultiplayerGMSymbolKind_Slack || symbol.kind == MultiplayerGMSymbolKind_Error) {
+				return symbol;
+			}
+		}
+		return MultiplayerGMSymbol.invalid();
+	}
+
+	private MultiplayerGMSymbol, MultiplayerGMRow getLeavingRow(MultiplayerGMSymbol entering) {
+		let ratio = double.INFINITY;
+		MultiplayerGMSymbol found = NULL;
+		let iter = self.rows.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let row = MultiplayerGMRow(vo);
+
+			if (symbol.kind != MultiplayerGMSymbolKind_External) {
+				let temp = row.coefficientFor(entering);
+				if (temp < 0.0) {
+					let tempRatio = -row.constant / temp;
+					if (tempRatio < ratio) {
+						ratio = tempRatio;
+						found = symbol;
+					}
+				}
+			}
+		}
+		if (found != NULL) {
+			return found, MultiplayerGMRow(self.rows.remove(found));
+		} else {
+			return NULL, NULL;
+		}
+	}
+
+	private MultiplayerGMSymbol, MultiplayerGMRow getMarkerLeavingRow(MultiplayerGMSymbol marker) {
+		let r1 = double.INFINITY;
+		let r2 = r1;
+		MultiplayerGMSymbol first = NULL;
+		MultiplayerGMSymbol second = NULL;
+		MultiplayerGMSymbol third = NULL;
+		let iter = self.rows.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let row = MultiplayerGMRow(vo);
+
+			let c = row.coefficientFor(marker);
+			if (c == 0.0) {
+				continue;
+			}
+			if (symbol.kind == MultiplayerGMSymbolKind_External) {
+				third = symbol;
+			} else if (c < 0.0) {
+				let r = -row.constant / c;
+				if (r < r1) {
+					r1 = r;
+					first = symbol;
+				}
+			} else {
+				let r = row.constant / c;
+				if (r < r2) {
+					r2 = r;
+					second = symbol;
+				}
+			}
+		}
+		let s =
+			(first != NULL)
+			? first
+			: (second != NULL)
+			  ? second
+			  : third;
+		if (s != NULL) {
+			if (s.kind == MultiplayerGMSymbolKind_External && MultiplayerGMRow(self.rows.get(s)).constant != 0.0) {
+				let v = MultiplayerGMVariable(self.varForSymbol.get(s));
+				self.varChanged(v);
+			}
+			let r = self.rows.remove(s);
+			if (!(r is "MultiplayerGMHashUnoccupied")) {
+				return s, MultiplayerGMRow(r);
+			} else {
+				return NULL, NULL;
+			}
+		} else {
+			return NULL, NULL;
+		}
+	}
+
+	private void removeConstraintEffects(MultiplayerGMConstraint cn, MultiplayerGMTag tag) {
+		if (tag.marker.kind == MultiplayerGMSymbolKind_Error) {
+			self.removeMarkerEffects(tag.marker, cn.getStrength());
+		} else if (tag.other.kind == MultiplayerGMSymbolKind_Error) {
+			self.removeMarkerEffects(tag.other, cn.getStrength());
+		}
+	}
+
+	private void removeMarkerEffects(MultiplayerGMSymbol marker, double strength) {
+		let r = self.rows.get(marker);
+		if (!(r is "MultiplayerGMHashUnoccupied")) {
+			let row = MultiplayerGMRow(r);
+			self.objective.insertRow(row, -strength);
+		} else {
+			self.objective.insertSymbol(marker, -strength);
+		}
+	}
+
+	private static bool allDummies(MultiplayerGMRow row) {
+		let iter = row.cells.iter();
+		while (true) {
+			let ko = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+			let s = MultiplayerGMSymbol(ko);
+
+			if (s.kind != MultiplayerGMSymbolKind_Dummy) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	static void printRow(MultiplayerGMRow row) {
+		let ret = "row = Row {\n    cells: {\n";
+
+		let iter = row.cells.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let val = MultiplayerGMBoxedDouble(vo).val;
+
+			ret.appendFormat("        %s: %f,\n", symbol.repr(), val);
+		}
+		ret.appendFormat("    },\n    constant: %f,\n}", row.constant);
+		Console.printf(ret);
+	}
+
+	private void printRows() {
+		let ret = "self.rows = {\n";
+		let iter = self.rows.iter();
+		while (true) {
+			Object ko, vo;
+			[ko, vo] = iter.next();
+			if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+			let symbol = MultiplayerGMSymbol(ko);
+			let row = MultiplayerGMRow(vo);
+
+			ret.appendFormat("    %s: Row {\n        cells: {\n", symbol.repr());
+
+			let iter = row.cells.iter();
+			while (true) {
+				Object ko, vo;
+				[ko, vo] = iter.next();
+				if (ko is "MultiplayerGMHashUnoccupied") { break; }
+
+				let symbol = MultiplayerGMSymbol(ko);
+				let val = MultiplayerGMBoxedDouble(vo).val;
+
+				ret.appendFormat("            %s: %f,\n", symbol.repr(), val);
+			}
+			ret.appendFormat("        },\n        constant: %f,\n    },\n", row.constant);
+		}
+		ret.appendFormat("}");
+		Console.printf(ret);
+	}
+}

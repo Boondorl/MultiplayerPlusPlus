@@ -1,0 +1,20 @@
+AddOptionMenu "OptionsMenuSimple"
+{
+	Submenu "$MNU_MULTIPP", "MultiplayerPPOptionsMenu"
+}
+
+AddOptionMenu "OptionsMenu"
+{
+	Submenu "$MNU_MULTIPP", "MultiplayerPPOptionsMenu"
+}
+
+OptionMenu "MultiplayerPPOptionsMenu"
+{
+	Title "$MNU_MULTIPP"
+	StaticText ""
+
+	StaticText "$MNU_MPPCONTROLS", 1
+	Control "$MNU_PING", "netevent MPPPing"
+	control "$MNU_CLEARPINGS", "netevent MPPClearPings"
+	Control "$MNU_TELEPORT", "netevent MPPTeleport"
+}

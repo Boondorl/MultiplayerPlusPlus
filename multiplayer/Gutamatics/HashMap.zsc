@@ -1,0 +1,353 @@
+class MultiplayerGMHasher abstract {
+	abstract virtualscope uint hash(Object o);
+	abstract virtualscope bool eq(Object o0, Object o1);
+	static void hashCombine(out uint seed, uint other) {
+		seed ^= other + 0x9E3779B9 + (seed << 6) + (seed >> 2);
+	}
+}
+
+class MultiplayerGMBoxedInt {
+	int val;
+	static MultiplayerGMBoxedInt create(int val) {
+		let ret = new();
+		ret.val = val;
+		return ret;
+	}
+	MultiplayerGMBoxedInt clone() {
+		let ret = new();
+		ret.val = self.val;
+		return ret;
+	}
+}
+class MultiplayerGMIntHasher : MultiplayerGMHasher {
+	override uint hash(Object o) { return MultiplayerGMBoxedInt(o).val; }
+	override bool eq(Object o0, Object o1) { return MultiplayerGMBoxedInt(o0).val == MultiplayerGMBoxedInt(o1).val; }
+}
+
+class MultiplayerGMBoxedUInt {
+	uint val;
+	static MultiplayerGMBoxedUInt create(uint val) {
+		let ret = new();
+		ret.val = val;
+		return ret;
+	}
+	MultiplayerGMBoxedUInt clone() {
+		let ret = new();
+		ret.val = self.val;
+		return ret;
+	}
+}
+class MultiplayerGMUIntHasher : MultiplayerGMHasher {
+	override uint hash(Object o) { return MultiplayerGMBoxedUInt(o).val; }
+	override bool eq(Object o0, Object o1) { return MultiplayerGMBoxedUInt(o0).val == MultiplayerGMBoxedUInt(o1).val; }
+}
+
+class MultiplayerGMBoxedDouble {
+	double val;
+	static MultiplayerGMBoxedDouble create(double val) {
+		let ret = new();
+		ret.val = val;
+		return ret;
+	}
+	MultiplayerGMBoxedDouble clone() {
+		let ret = new();
+		ret.val = self.val;
+		return ret;
+	}
+}
+
+class MultiplayerGMBoxedString {
+	String val;
+	static MultiplayerGMBoxedString create(String val) {
+		let ret = new();
+		ret.val = val;
+		return ret;
+	}
+	MultiplayerGMBoxedString clone() {
+		let ret = new();
+		ret.val = self.val;
+		return ret;
+	}
+}
+
+class MultiplayerGMHashSentinel {}
+
+class MultiplayerGMHashUnoccupied {}
+
+class MultiplayerGMKVStorage {
+	Array<Object> keys;
+	Array<Object> values;
+	int loadCount;
+
+	MultiplayerGMHashUnoccupied unoccupied;
+
+	MultiplayerGMHashSentinel empty;
+	MultiplayerGMHashSentinel tombstone;
+
+	Object get(Object key, MultiplayerGMHasher hasher) {
+		let hash = hasher.hash(key);
+		let size = uint(self.keys.size());
+		let index = hash % size;
+		let i = index;
+		while (true) {
+			let kb = self.keys[i];
+			if (kb == self.empty) {
+				break;
+			}
+			if (kb != self.tombstone && hasher.eq(kb, key)) {
+				return self.values[i];
+			}
+			i = (i + 1) % size;
+		}
+		return self.unoccupied;
+	}
+
+	MultiplayerGMKVStorage resized(uint newSize, MultiplayerGMHasher hasher) {
+		let newKV = new("MultiplayerGMKVStorage");
+		newKV.keys.resize(newSize);
+		newKV.values.resize(newSize);
+
+		newKV.unoccupied = self.unoccupied;
+		newKV.empty = self.empty;
+		newKV.tombstone = self.tombstone;
+
+		newKV.clear();
+
+		for (let i = 0; i < self.keys.size(); i++) {
+			let k = self.keys[i];
+			if (k != self.empty && k != self.tombstone) {
+				newKV.insert(k, self.values[i], hasher);
+			}
+		}
+
+		return newKV;
+	}
+
+	void insert(Object key, Object value, MultiplayerGMHasher hasher) {
+		let hash = hasher.hash(key);
+		let size = uint(self.keys.size());
+		let index = hash % size;
+		{
+			let i = index;
+			while (true) {
+				let kb = self.keys[i];
+				if (kb == self.empty) {
+					break;
+				}
+				if (kb != self.tombstone && hasher.eq(kb, key)) {
+					self.values[i] = value;
+					return;
+				}
+				i = (i + 1) % size;
+			}
+		}
+		{
+			let i = index;
+			while (true) {
+				let kb = self.keys[i];
+				if (kb == self.empty || kb == self.tombstone) {
+					self.keys[i] = key;
+					self.values[i] = value;
+					if (kb == self.empty) {
+						self.loadCount += 1;
+					}
+					break;
+				}
+				i = (i + 1) % size;
+			}
+		}
+	}
+
+	Object remove(Object key, MultiplayerGMHasher hasher) {
+		let hash = hasher.hash(key);
+		let size = uint(self.keys.size());
+		{
+			let index = hash % size;
+			let i = index;
+			while (true) {
+				let kb = self.keys[i];
+				if (kb == self.empty) {
+					break;
+				}
+				if (kb != self.tombstone && hasher.eq(kb, key)) {
+					let val = self.values[i];
+					self.keys[i] = self.tombstone;
+					self.values[i] = NULL;
+					return val;
+				}
+				i = (i + 1) % size;
+			}
+		}
+		return self.unoccupied;
+	}
+
+	bool isEmpty() {
+		for (let i = 0; i < self.keys.size(); i++) {
+			let k = self.keys[i];
+			if (k != self.empty && k != self.tombstone) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	void clear() {
+		for (let i = 0; i < self.keys.size(); i++) {
+			self.keys[i] = self.empty;
+			self.values[i] = NULL;
+		}
+		self.loadCount = 0u;
+	}
+}
+
+class MultiplayerGMHashMapIterator {
+	private MultiplayerGMKVStorage m;
+	private int i;
+
+	static MultiplayerGMHashMapIterator internalCreate(MultiplayerGMKVStorage kv) {
+		let ret = new();
+		ret.m = kv;
+		ret.i = 0;
+		return ret;
+	}
+
+	Object, Object next() {
+		while (self.i < m.keys.size()) {
+			let k = m.keys[self.i];
+			let v = m.values[self.i];
+			self.i += 1;
+			if (k != self.m.empty && k != self.m.tombstone) {
+				return k, v;
+			}
+		}
+		return self.m.unoccupied, NULL;
+	}
+}
+
+class MultiplayerGMHashMap {
+	private MultiplayerGMKVStorage kv;
+	private MultiplayerGMHasher hasher;
+
+	static MultiplayerGMHashMap create(MultiplayerGMHasher hasher) {
+		let ret = new();
+		ret.kv = new("MultiplayerGMKVStorage");
+		ret.kv.keys.resize(8);
+		ret.kv.values.resize(8);
+		ret.kv.unoccupied = new("MultiplayerGMHashUnoccupied");
+		ret.kv.empty = new("MultiplayerGMHashSentinel");
+		ret.kv.tombstone = new("MultiplayerGMHashSentinel");
+		ret.kv.clear();
+		ret.hasher = hasher;
+		return ret;
+	}
+
+	Object get(Object key) {
+		return self.kv.get(key, self.hasher);
+	}
+
+	bool containsKey(Object key) {
+		return !(self.kv.get(key, self.hasher) is "MultiplayerGMHashUnoccupied");
+	}
+
+	void resize(uint newSize) {
+		self.kv = self.kv.resized(newSize, hasher);
+	}
+
+	void insert(Object key, Object value) {
+		if (self.kv.loadCount + 1 > self.kv.keys.size() / 2) {
+			self.resize(self.kv.keys.size() * 2);
+		}
+		self.kv.insert(key, value, self.hasher);
+	}
+
+	Object remove(Object key) {
+		return self.kv.remove(key, self.hasher);
+	}
+
+	bool isEmpty() {
+		return self.kv.isEmpty();
+	}
+	
+	void clear() {
+		self.kv.clear();
+	}
+
+	MultiplayerGMHashMapIterator iter() {
+		return MultiplayerGMHashMapIterator.internalCreate(self.kv);
+	}
+
+	String debugRepr() {
+		let ret = "";
+		for (let i = 0; i < self.kv.keys.size(); i++) {
+			ret.appendFormat("%d : ", i);
+			let k = self.kv.keys[i];
+			if (k == self.kv.empty) {
+				ret.appendFormat("EMPTY");
+			} else if (k == self.kv.tombstone) {
+				ret.appendFormat("TOMBSTONE");
+			} else {
+				ret.appendFormat("%p -> %p", k, self.kv.values[i]);
+			}
+			if (i != self.kv.keys.size() - 1) {
+				ret.appendFormat("\n");
+			}
+		}
+		return ret;
+	}
+}
+
+class MultiplayerGMHashSetIterator {
+	private MultiplayerGMHashMapIterator i;
+
+	static MultiplayerGMHashSetIterator internalCreate(MultiplayerGMHashMapIterator i) {
+		let ret = new();
+		ret.i = i;
+		return ret;
+	}
+
+	Object next() {
+		return self.i.next();
+	}
+}
+
+class MultiplayerGMHashSet {
+	private MultiplayerGMHashMap hm;
+
+	static MultiplayerGMHashSet create(MultiplayerGMHasher hasher) {
+		let ret = new();
+		ret.hm = MultiplayerGMHashMap.create(hasher);
+		return ret;
+	}
+
+	bool contains(Object key) {
+		return self.hm.containsKey(key);
+	}
+
+	void resize(uint newSize) {
+		self.hm.resize(newSize);
+	}
+
+	void insert(Object key) {
+		self.hm.insert(key, NULL);
+	}
+
+	Object remove(Object key) {
+		return self.hm.remove(key);
+	}
+
+	bool isEmpty() {
+		return self.hm.isEmpty();
+	}
+
+	void clear() {
+		self.hm.clear();
+	}
+
+	MultiplayerGMHashSetIterator iter() {
+		return MultiplayerGMHashSetIterator.internalCreate(self.hm.iter());
+	}
+
+	String debugRepr() {
+		return self.hm.debugRepr();
+	}
+}
