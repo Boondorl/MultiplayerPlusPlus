@@ -1,1 +1,7 @@
-server bool sv_allowteleport = true;
+server bool mpp_allowteleport = true;
+
+server bool mpp_survival = false;
+server bool mpp_individuallives = false;
+server bool mpp_resetlives = false;
+server int mpp_livesdamagethreshold = 5000;
+server int mpp_lives = 3;

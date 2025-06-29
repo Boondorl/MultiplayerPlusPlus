@@ -168,8 +168,228 @@ class MultiplayerPingInfo play
 	}
 }
 
+class MultiplayerLivesManager : Thinker
+{
+    const SURVIVAL_END_DELAY = 4.0;
+
+	private int lives;
+	private int playerLives[MAXPLAYERS];
+	private int curDamage;
+    private bool bSurvivalEnded;
+    private int endTimer;
+	
+	static MultiplayerLivesManager Get()
+	{
+		let lm = MultiplayerLivesManager(ThinkerIterator.Create("MultiplayerLivesManager", STAT_STATIC).Next());
+		if (!lm)
+		{
+			lm = new("MultiplayerLivesManager");
+			lm.ChangeStatNum(STAT_STATIC);
+			lm.Reset();
+		}
+			
+		return lm;
+	}
+	
+	clearscope int GetLives(int pNum) const
+	{
+		return mpp_individuallives ? playerLives[pNum] : lives;
+	}
+	
+	clearscope int GetNextLife() const
+	{
+		return Max(mpp_livesdamagethreshold - curDamage, 0);
+	}
+
+    clearscope bool HasGameEnded() const
+    {
+        return bSurvivalEnded;
+    }
+
+	clearscope bool CanRespawn(int pNum) const
+	{
+		if (!mpp_survival)
+			return true;
+        if (bSurvivalEnded)
+            return false;
+
+		return (mpp_individuallives ? playerLives[pNum] : lives) > 0;
+	}
+
+	clearscope bool IsEveryoneDead() const
+	{
+		if (!mpp_survival)
+			return false;
+			
+		for (int i; i < MAXPLAYERS; ++i)
+		{
+			if (PlayerInGame[i] && Players[i].PlayerState == PST_LIVE)
+				return false;
+		}
+		
+        if (mpp_individuallives)
+        {
+            for (int i; i < MAXPLAYERS; ++i)
+            {
+                if (PlayerInGame[i] && playerLives[i] > 0)
+					return false;
+            }
+            
+            return true;
+        }
+
+        return lives <= 0;
+	}
+	
+	void Reset()
+	{
+        bSurvivalEnded = false;
+        endTimer = curDamage = 0;
+		lives = mpp_lives;
+		for (int i; i < MAXPLAYERS; ++i)
+			playerLives[i] = mpp_lives;
+	}
+
+    void UpdateGame()
+    {
+        if (!bSurvivalEnded)
+        {
+            bSurvivalEnded = IsEveryoneDead();
+            if (bSurvivalEnded)
+                endTimer = int(ceil(SURVIVAL_END_DELAY * GameTicRate));
+        }
+
+        if (!bSurvivalEnded)
+            return;
+
+        if (--endTimer <= 0)
+        {
+            Reset();
+            Level.ChangeLevel(Level.MapName, flags: CHANGELEVEL_RESETHEALTH|CHANGELEVEL_RESETINVENTORY);
+        }
+    }
+	
+	void AddDamage(int amt)
+	{
+		if (!mpp_survival || amt <= 0 || mpp_livesdamagethreshold <= 0)
+			return;
+			
+		curDamage += amt;
+		int toAdd;
+		while (curDamage >= mpp_livesdamagethreshold)
+		{
+			++toAdd;
+			curDamage -= mpp_livesdamagethreshold;
+		}
+				
+		lives += toAdd;
+		for (int i; i < MAXPLAYERS; ++i)
+			playerLives[i] += toAdd;
+	}
+	
+	void PlayerDied(int pNum)
+	{
+		if (!mpp_survival)
+			return;
+		
+		if (mpp_individuallives)
+			--playerLives[pNum];
+		else
+			--lives;
+	}
+}
+
 class MultiplayerHandler : StaticEventHandler
 {
+	// Base functionality
+
+	clearscope static bool IsCoop()
+	{
+		return multiplayer && !deathmatch;
+	}
+
+	// Overrides
+
+	override void WorldLoaded(WorldEvent e)
+    {
+		// TODO: This probably breaks hubs...
+        if (!e.IsReopen && !e.IsSaveGame)
+            ResetLives();
+    }
+
+	override void WorldUnloaded(WorldEvent e)
+    {
+        // Since pings can reside even after a player leaves, everyone has
+        // to be cleared.
+        for (int i; i < MAXPLAYERS; ++i)
+            ClearPings(Players[i]);
+    }
+
+	override void WorldTick()
+    {
+        UpdatePings();
+		UpdateTeleportCooldowns();
+		UpdateLives();
+    }
+
+	override void WorldThingDamaged(WorldEvent e)
+    {
+        if (e.DamageSource && e.DamageSource.Player && (!e.Thing || (e.Thing.bIsMonster && !e.DamageSource.IsFriend(e.Thing))))
+        {
+            int dmg = 100;
+            if (e.Thing)
+            {
+                dmg = e.Damage;
+                if (e.Thing.Health < 0)
+                    dmg += e.Thing.Health;
+            }
+
+            if (dmg > 0)
+            	AddLivesDamage(dmg);
+        }
+    }
+
+	override bool PlayerRespawning(PlayerEvent e)
+	{
+		return HasLivesToRespawn(e.PlayerNumber);
+	}
+
+	override void PlayerDied(PlayerEvent e)
+    {
+        RemoveLives(e.PlayerNumber);
+    }
+
+	override void RenderUnderlay(RenderEvent e)
+    {
+        DrawPings(e);
+    }
+
+	override void RenderOverlay(RenderEvent e)
+    {
+        DrawLives(e.FracTic);
+    }
+
+	override void NetworkProcess(ConsoleEvent e)
+	{
+		if (e.Name ~== "MPPPing")
+		{
+			if (multiplayer && (!deathmatch || teamplay))
+				SetPing(Players[e.Player]);
+		}
+		else if (e.Name ~== "MPPClearPings")
+		{
+			if (multiplayer && (!deathmatch || teamplay))
+				ClearPings(Players[e.Player]);
+		}
+		else if (e.Name ~== "MPPTeleport")
+		{
+			if (IsCoop())
+				TeleportToAlly(e.Player);
+		}
+	}
+
+	// Pinging
+
 	const PING_TIME = 20.0;
 	const PING_RANGE = 8096.0;
 	const H_FONT_SCALE = 3.0;
@@ -507,47 +727,8 @@ class MultiplayerHandler : StaticEventHandler
         Screen.SetClipRect(cx, cy, cw, ch);
     }
 
-	override void WorldUnloaded(WorldEvent e)
-    {
-        // Since pings can reside even after a player leaves, everyone has
-        // to be cleared.
-        for (int i; i < MAXPLAYERS; ++i)
-            ClearPings(Players[i]);
-    }
+	// Teleport handling
 
-	override void WorldTick()
-    {
-        UpdatePings();
-		UpdateTeleportCooldowns();
-    }
-
-	override void RenderUnderlay(RenderEvent e)
-    {
-        DrawPings(e);
-    }
-
-	override void NetworkProcess(ConsoleEvent e)
-	{
-		if (e.Name ~== "MPPPing")
-		{
-			if (multiplayer && (!deathmatch || teamplay))
-				SetPing(players[e.Player]);
-		}
-		else if (e.Name ~== "MPPClearPings")
-		{
-			if (multiplayer && (!deathmatch || teamplay))
-				ClearPings(Players[e.Player]);
-		}
-		else if (e.Name ~== "MPPTeleport")
-		{
-			if (multiplayer && !deathmatch)
-				TeleportToAlly(e.Player);
-		}
-	}
-}
-
-extend class MultiplayerHandler
-{
 	const MAX_TELEPORT_ANG = cos(15.0);
 
 	private int teleportCooldown[MAXPLAYERS];
@@ -555,7 +736,7 @@ extend class MultiplayerHandler
 	void TeleportToAlly(int pNum)
 	{
 		let player = players[pNum];
-		if (player.playerstate == PST_DEAD || !sv_allowteleport)
+		if (player.playerstate == PST_DEAD || !mpp_allowteleport)
 			return;
 
 		if (teleportCooldown[pNum] > 0)
@@ -611,5 +792,76 @@ extend class MultiplayerHandler
 			if (teleportCooldown[i] > 0)
 				--teleportCooldown[i];
 		}
+	}
+
+	// Survival
+
+	private MultiplayerLivesManager livesManager;
+
+    MultiplayerLivesManager GetLivesManager()
+    {
+        if (!livesManager)
+            livesManager = MultiplayerLivesManager.Get();
+
+        return livesManager;
+    }
+	
+	void ResetLives()
+	{
+        if (mpp_resetlives && IsCoop())
+            GetLivesManager().Reset();
+	}
+	
+	void UpdateLives()
+	{
+		if (IsCoop())
+            GetLivesManager().UpdateGame();
+	}
+
+    void RemoveLives(int pNum)
+    {
+        if (IsCoop())
+            GetLivesManager().PlayerDied(pNum);
+    }
+
+    void AddLivesDamage(int dmg)
+    {
+        if (IsCoop())
+            GetLivesManager().AddDamage(dmg);
+    }
+
+	bool HasLivesToRespawn(int pNum)
+	{
+		if (IsCoop())
+			return GetLivesManager().CanRespawn(pNum);
+
+		return true;
+	}
+	
+	ui void DrawLives(double ticFrac)
+	{
+		if (!mpp_survival || !livesManager || !IsCoop())
+			return;
+
+		double realScalar = Screen.GetHeight() / 1080.0;
+		Vector2 scale = (2.0, 2.4) * realScalar;
+        double center = Screen.GetWidth() * 0.5;
+        if (livesManager.HasGameEnded())
+        {
+            string gameOver = StringTable.Localize("$MPP_GAMEOVER");
+            double x = center - BigFont.StringWidth(gameOver) * 0.5 * scale.X;
+            Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, center, 0.0, gameOver, DTA_ScaleX, scale.X, DTA_ScaleY, scale.Y);
+            return;
+        }
+		
+        string text = String.Format(StringTable.Localize("$MPP_LIVES"), livesManager.GetLives(ConsolePlayer));
+        double x = center - BigFont.StringWidth(text) * 0.5 * scale.X;
+		Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, x, 0.0, text, DTA_ScaleX, scale.X, DTA_ScaleY, scale.Y);
+		if (mpp_livesdamagethreshold > 0)
+        {
+			text = String.Format(StringTable.Localize("$MPP_NEXTLIFE"), livesManager.GetNextLife());
+            x = center - BigFont.StringWidth(text) * 0.375 * scale.X;
+			Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, x, BigFont.GetHeight() * scale.Y, text, DTA_ScaleX, scale.X * 0.75, DTA_ScaleY, scale.Y * 0.75);
+        }
 	}
 }
