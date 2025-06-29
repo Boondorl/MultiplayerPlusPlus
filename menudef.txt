@@ -27,6 +27,6 @@ OptionMenu "MultiplayerPPOptionsMenu"
 	Option "$MNU_MPPSURVENABLE", "mpp_survival", "OnOff"
 	Option "$MNU_MPPSURVINDLIVES", "mpp_individuallives", "OnOff", "mpp_survival"
 	Option "$MNU_MPPRESETLIVES", "mpp_resetlives", "OnOff", "mpp_survival"
-	Slider "$MNU_MPPSURVTHRESH", "mpp_livesdamagethreshold", 1000, 10000, 100, 0, "mpp_survival"
+	Slider "$MNU_MPPSURVTHRESH", "mpp_livesdamagethreshold", 0, 12000, 1000, 0, "mpp_survival"
 	Slider "$MNU_MPPLIVES", "mpp_lives", 1, 10, 1, 0, "mpp_survival"
 }
