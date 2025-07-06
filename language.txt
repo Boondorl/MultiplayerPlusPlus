@@ -14,13 +14,21 @@ MNU_ALLOWTELE = "Allow players to teleport to allies";
 MNU_TELECOOLDOWN = "Teleport cool down";
 
 MNU_MPPSURVENABLE = "Survival mode";
+MNU_MPPSURVTYPE = "Survival type";
 MNU_MPPSURVINDLIVES = "Per-player lives";
 MNU_MPPRESETLIVES = "Reset lives when entering a new level";
 MNU_MPPSURVTHRESH = "Damage threshold for gaining lives";
 MNU_MPPLIVES = "Lives";
+MNU_MPPRESPAWN = "Respawn Time";
+
+OPTVAL_MPPSURVCLASSIC = "Classic";
+OPTVAL_MPPSURVMODERN = "Modern";
+OPTVAL_MPPSURVTIMER = "Time-based";
+OPTVAL_MPPIRONMAN = "Iron Man";
 
 MPP_GAMEOVER = "Game Over";
 MPP_LIVES = "Lives: %d";
 MPP_NEXTLIFE = "Damage to next life: %d";
+MPP_TIME = "Respawn available in %d second(s)";
 
 MPP_TELECOOLDOWN = "You must wait %d second(s) before being able to teleport again";

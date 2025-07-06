@@ -172,9 +172,18 @@ class MultiplayerLivesManager : Thinker
 {
     const SURVIVAL_END_DELAY = 4.0;
 
+	enum ESurvivalTypes
+	{
+		SURV_CLASSIC,
+		SURV_MODERN,
+		SURV_RESPAWN,
+		SURV_IRONMAN,
+	}
+
 	private int lives;
 	private int playerLives[MAXPLAYERS];
 	private int curDamage;
+	private int playerRespawnTimes[MAXPLAYERS];
     private bool bSurvivalEnded;
     private int endTimer;
 	
@@ -201,6 +210,11 @@ class MultiplayerLivesManager : Thinker
 		return Max(mpp_livesdamagethreshold - curDamage, 0);
 	}
 
+	clearscope int GetRespawnTime(int pNum) const
+	{
+		return Max(int(ceil(double(playerRespawnTimes[pNum]) / GameTicRate)), 0);
+	}
+
     clearscope bool HasGameEnded() const
     {
         return bSurvivalEnded;
@@ -210,8 +224,11 @@ class MultiplayerLivesManager : Thinker
 	{
 		if (!mpp_survival)
 			return true;
-        if (bSurvivalEnded)
+        if (bSurvivalEnded || mpp_survivaltype == SURV_IRONMAN)
             return false;
+
+		if (mpp_survivaltype == SURV_RESPAWN)
+			return playerRespawnTimes[pNum] <= 0;
 
 		return (mpp_individuallives ? playerLives[pNum] : lives) > 0;
 	}
@@ -220,11 +237,33 @@ class MultiplayerLivesManager : Thinker
 	{
 		if (!mpp_survival)
 			return false;
+
+		if (mpp_survivaltype == SURV_IRONMAN)
+		{
+			for (int i; i < MAXPLAYERS; ++i)
+			{
+				if (PlayerInGame[i] && Players[i].Health <= 0)
+					return true;
+			}
+
+			return false;
+		}
 			
 		for (int i; i < MAXPLAYERS; ++i)
 		{
-			if (PlayerInGame[i] && Players[i].PlayerState == PST_LIVE)
+			if (PlayerInGame[i] && Players[i].Health > 0)
 				return false;
+		}
+
+		if (mpp_survivaltype == SURV_RESPAWN)
+		{
+			for (int i; i < MAXPLAYERS; ++i)
+			{
+				if (PlayerInGame[i] && playerRespawnTimes[i] <= 0)
+					return false;
+			}
+
+			return true;
 		}
 		
         if (mpp_individuallives)
@@ -247,7 +286,10 @@ class MultiplayerLivesManager : Thinker
         endTimer = curDamage = 0;
 		lives = mpp_lives;
 		for (int i; i < MAXPLAYERS; ++i)
+		{
 			playerLives[i] = mpp_lives;
+			playerRespawnTimes[i] = 0;
+		}
 	}
 
     void UpdateGame()
@@ -260,7 +302,27 @@ class MultiplayerLivesManager : Thinker
         }
 
         if (!bSurvivalEnded)
-            return;
+        {
+			int i;
+			for (; i < MAXPLAYERS; ++i)
+			{
+				if (PlayerInGame[i] && Players[i].Health > 0)
+					break;
+			}
+
+			// Only allow counting down if a single player is alive, that way a player with a respawn
+			// available can't wait out everyone else's timers safely.
+			if (i < MAXPLAYERS)
+			{
+				for (int j; j < MAXPLAYERS; ++j)
+				{
+					if (playerRespawnTimes[j] > 0)
+						--playerRespawnTimes[j];
+				}
+			}
+
+			return;
+		}
 
         if (--endTimer <= 0)
         {
@@ -271,7 +333,7 @@ class MultiplayerLivesManager : Thinker
 	
 	void AddDamage(int amt)
 	{
-		if (!mpp_survival || amt <= 0 || mpp_livesdamagethreshold <= 0)
+		if (!mpp_survival || mpp_survivaltype != SURV_MODERN || amt <= 0 || mpp_livesdamagethreshold <= 0)
 			return;
 			
 		curDamage += amt;
@@ -289,8 +351,14 @@ class MultiplayerLivesManager : Thinker
 	
 	void PlayerDied(int pNum)
 	{
-		if (!mpp_survival)
+		if (!mpp_survival || mpp_survivaltype == SURV_IRONMAN)
 			return;
+
+		if (mpp_survivaltype == SURV_RESPAWN)
+		{
+			playerRespawnTimes[pNum] = Max(int(ceil(mpp_respawntime * GameTicRate)), 0);
+			return;
+		}
 		
 		if (mpp_individuallives)
 			--playerLives[pNum];
@@ -856,11 +924,29 @@ class MultiplayerHandler : StaticEventHandler
             Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, center, 0.0, gameOver, DTA_ScaleX, scale.X, DTA_ScaleY, scale.Y);
             return;
         }
+
+		if (mpp_survivaltype == MultiplayerLivesManager.SURV_IRONMAN)
+			return;
+
+		if (mpp_survivaltype == MultiplayerLivesManager.SURV_RESPAWN)
+		{
+			if (players[consoleplayer].Health > 0)
+				return;
+
+			int time = livesManager.GetRespawnTime(ConsolePlayer);
+			if (time <= 0)
+				return;
+
+			string text = String.Format(StringTable.Localize("$MPP_TIME"), time);
+			double x = center - BigFont.StringWidth(text) * 0.5 * scale.X;
+			Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, x, 0.0, text, DTA_ScaleX, scale.X, DTA_ScaleY, scale.Y);
+			return;
+		}
 		
         string text = String.Format(StringTable.Localize("$MPP_LIVES"), livesManager.GetLives(ConsolePlayer));
         double x = center - BigFont.StringWidth(text) * 0.5 * scale.X;
 		Screen.DrawText(BigFont, Font.CR_UNTRANSLATED, x, 0.0, text, DTA_ScaleX, scale.X, DTA_ScaleY, scale.Y);
-		if (mpp_livesdamagethreshold > 0)
+		if (mpp_livesdamagethreshold > 0 && mpp_survivaltype == MultiplayerLivesManager.SURV_MODERN)
         {
 			text = String.Format(StringTable.Localize("$MPP_NEXTLIFE"), livesManager.GetNextLife());
             x = center - BigFont.StringWidth(text) * 0.375 * scale.X;

@@ -21,13 +21,23 @@ OptionMenu "MultiplayerPPOptionsMenu"
 	StaticText ""
 	StaticText "$MNU_MPPSERVER", 1
 	Option "$MNU_ALLOWTELE", "mpp_allowteleport", "OnOff"
-	Slider "$MNU_TELECOOLDOWN", "mpp_telecooldown", 0, 300, 5, 1
+	Slider "$MNU_TELECOOLDOWN", "mpp_telecooldown", 0, 300, 5, 1, "mpp_allowteleport"
 	
 	StaticText ""
 	StaticText "$MNU_MPPSURVIVAL", 1
 	Option "$MNU_MPPSURVENABLE", "mpp_survival", "OnOff"
+	Option "$MNU_MPPSURVTYPE", "mpp_survivaltype", "SurvivalTypes", "mpp_survival"
 	Option "$MNU_MPPSURVINDLIVES", "mpp_individuallives", "OnOff", "mpp_survival"
 	Option "$MNU_MPPRESETLIVES", "mpp_resetlives", "OnOff", "mpp_survival"
 	Slider "$MNU_MPPSURVTHRESH", "mpp_livesdamagethreshold", 0, 12000, 1000, 0, "mpp_survival"
 	Slider "$MNU_MPPLIVES", "mpp_lives", 1, 10, 1, 0, "mpp_survival"
+	Slider "$MNU_MPPRESPAWN", "mpp_respawntime", 0, 300, 30, 1, "mpp_survival"
+}
+
+OptionValue "SurvivalTypes"
+{
+	0, "$OPTVAL_MPPSURVCLASSIC"
+	1, "$OPTVAL_MPPSURVMODERN"
+	2, "$OPTVAL_MPPSURVTIMER"
+	3, "$OPTVAL_MPPIRONMAN"
 }

@@ -2,7 +2,9 @@ server bool mpp_allowteleport = true;
 server float mpp_telecooldown = 10.0;
 
 server bool mpp_survival = false;
+server int mpp_survivaltype = 1;
 server bool mpp_individuallives = false;
 server bool mpp_resetlives = false;
 server int mpp_livesdamagethreshold = 5000;
 server int mpp_lives = 3;
+server float mpp_respawntime = 60.0;
