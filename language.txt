@@ -11,6 +11,7 @@ MNU_CLEARPINGS = "Clear Pings";
 MNU_TELEPORT = "Teleport to Ally";
 
 MNU_ALLOWTELE = "Allow players to teleport to allies";
+MNU_TELECOOLDOWN = "Teleport cool down";
 
 MNU_MPPSURVENABLE = "Survival mode";
 MNU_MPPSURVINDLIVES = "Per-player lives";
@@ -21,3 +22,5 @@ MNU_MPPLIVES = "Lives";
 MPP_GAMEOVER = "Game Over";
 MPP_LIVES = "Lives: %d";
 MPP_NEXTLIFE = "Damage to next life: %d";
+
+MPP_TELECOOLDOWN = "You must wait %d second(s) before being able to teleport again";

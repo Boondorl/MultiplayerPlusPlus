@@ -742,7 +742,7 @@ class MultiplayerHandler : StaticEventHandler
 		if (teleportCooldown[pNum] > 0)
 		{
 			if (pNum == consoleplayer)
-				Console.Printf("You must wait %d second(s) before being able to teleport", teleportCooldown[pNum] / GameTicRate);
+				Console.Printf(StringTable.Localize("$MPP_TELECOOLDOWN"), teleportCooldown[pNum] / GameTicRate);
 
 			return;
 		}
@@ -778,8 +778,11 @@ class MultiplayerHandler : StaticEventHandler
 		if (closest == -1)
 			return;
 
-		teleportCooldown[pNum] = 10 * GameTicRate;
+		teleportCooldown[pNum] = Max(int(ceil(mpp_telecooldown * GameTicRate)), 0);
 		player.mo.SetOrigin(players[closest].mo.Pos, false);
+		player.mo.Vel = (0.0, 0.0, 0.0);
+		player.Vel = (0.0, 0.0);
+		player.mo.ReactionTime = player.mo.GetTeleportFreezeTime();
 		let fog = Actor.Spawn(player.mo.TeleFogDestType, player.mo.Pos, ALLOW_REPLACE);
 		if (fog)
 			fog.Target = player.mo;

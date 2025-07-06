@@ -1,4 +1,5 @@
 server bool mpp_allowteleport = true;
+server float mpp_telecooldown = 10.0;
 
 server bool mpp_survival = false;
 server bool mpp_individuallives = false;
