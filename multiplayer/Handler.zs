@@ -292,6 +292,57 @@ class MultiplayerLivesManager : Thinker
 		}
 	}
 
+	private void ResetMap()
+	{
+		Reset();
+
+		string mapName;
+		if (!mpp_resetepisode)
+		{
+			mapName = Level.MapName;
+		}
+		else
+		{
+			// Search through all the episodes since the level itself won't have this info.
+			foreach (e : AllEpisodes)
+			{
+				Array<string> maps;
+				if (!e.mEpisodeMap.IsEmpty())
+					maps.Push(e.mEpisodeMap);
+
+				for (int i; i < maps.Size(); ++i)
+				{
+					let info = LevelInfo.FindLevelInfo(maps[i]);
+					if (!info)
+						continue;
+
+					if (!info.NextMap.IsEmpty() && maps.Find(info.NextMap) >= maps.Size())
+						maps.Push(info.NextMap);
+					if (!info.NextSecretMap.IsEmpty() && maps.Find(info.NextSecretMap) >= maps.Size())
+						maps.Push(info.NextSecretMap);
+				}
+				
+				foreach (m : maps)
+				{
+					if (m ~== Level.MapName)
+					{
+						mapName = e.mEpisodeMap;
+						break;
+					}
+				}
+
+				if (!mapName.IsEmpty())
+					break;
+			}
+
+			// If this map isn't defined in any episode, just reset this map.
+			if (mapName.IsEmpty())
+				mapName = Level.MapName;
+		}
+
+		Level.ChangeLevel(mapName, flags: CHANGELEVEL_RESETHEALTH|CHANGELEVEL_RESETINVENTORY);
+	}
+
     void UpdateGame()
     {
         if (!bSurvivalEnded)
@@ -325,10 +376,7 @@ class MultiplayerLivesManager : Thinker
 		}
 
         if (--endTimer <= 0)
-        {
-            Reset();
-            Level.ChangeLevel(Level.MapName, flags: CHANGELEVEL_RESETHEALTH|CHANGELEVEL_RESETINVENTORY);
-        }
+			ResetMap();
     }
 	
 	void AddDamage(int amt)

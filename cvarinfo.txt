@@ -8,3 +8,4 @@ server bool mpp_resetlives = false;
 server int mpp_livesdamagethreshold = 5000;
 server int mpp_lives = 3;
 server float mpp_respawntime = 60.0;
+server bool mpp_resetepisode = false;
