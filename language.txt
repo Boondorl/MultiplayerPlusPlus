@@ -19,6 +19,7 @@ MNU_MPPSURVINDLIVES = "Per-player lives";
 MNU_MPPRESETLIVES = "Reset lives when entering a new level";
 MNU_MPPSURVTHRESH = "Damage threshold for gaining lives";
 MNU_MPPLIVES = "Lives";
+MNU_MPPKEEPDEATH = "Preserve player deaths between levels";
 MNU_MPPRESPAWN = "Respawn time";
 MNU_MPPRESET = "Reset episode on Game Over";
 

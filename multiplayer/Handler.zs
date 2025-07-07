@@ -180,10 +180,23 @@ class MultiplayerLivesManager : Thinker
 		SURV_IRONMAN,
 	}
 
+	struct PlayerState
+	{
+		int Lives;
+		int RespawnTime;
+		bool bDead;
+
+		void Clear()
+		{
+			Lives = mpp_lives;
+			RespawnTime = 0;
+			bDead = false;
+		}
+	}
+
 	private int lives;
-	private int playerLives[MAXPLAYERS];
+	private PlayerState pInfo[MAXPLAYERS];
 	private int curDamage;
-	private int playerRespawnTimes[MAXPLAYERS];
     private bool bSurvivalEnded;
     private int endTimer;
 	
@@ -202,7 +215,7 @@ class MultiplayerLivesManager : Thinker
 	
 	clearscope int GetLives(int pNum) const
 	{
-		return mpp_individuallives ? playerLives[pNum] : lives;
+		return mpp_individuallives ? pInfo[pNum].Lives : lives;
 	}
 	
 	clearscope int GetNextLife() const
@@ -212,7 +225,7 @@ class MultiplayerLivesManager : Thinker
 
 	clearscope int GetRespawnTime(int pNum) const
 	{
-		return Max(int(ceil(double(playerRespawnTimes[pNum]) / GameTicRate)), 0);
+		return Max(int(ceil(double(pInfo[pNum].RespawnTime) / GameTicRate)), 0);
 	}
 
     clearscope bool HasGameEnded() const
@@ -228,9 +241,9 @@ class MultiplayerLivesManager : Thinker
             return false;
 
 		if (mpp_survivaltype == SURV_RESPAWN)
-			return playerRespawnTimes[pNum] <= 0;
+			return pInfo[pNum].RespawnTime <= 0;
 
-		return (mpp_individuallives ? playerLives[pNum] : lives) > 0;
+		return (mpp_individuallives ? pInfo[pNum].Lives : lives) > 0;
 	}
 
 	clearscope bool IsEveryoneDead() const
@@ -259,7 +272,7 @@ class MultiplayerLivesManager : Thinker
 		{
 			for (int i; i < MAXPLAYERS; ++i)
 			{
-				if (PlayerInGame[i] && playerRespawnTimes[i] <= 0)
+				if (PlayerInGame[i] && pInfo[i].RespawnTime <= 0)
 					return false;
 			}
 
@@ -270,7 +283,7 @@ class MultiplayerLivesManager : Thinker
         {
             for (int i; i < MAXPLAYERS; ++i)
             {
-                if (PlayerInGame[i] && playerLives[i] > 0)
+                if (PlayerInGame[i] && pInfo[i].Lives > 0)
 					return false;
             }
             
@@ -286,10 +299,14 @@ class MultiplayerLivesManager : Thinker
         endTimer = curDamage = 0;
 		lives = mpp_lives;
 		for (int i; i < MAXPLAYERS; ++i)
-		{
-			playerLives[i] = mpp_lives;
-			playerRespawnTimes[i] = 0;
-		}
+			pInfo[i].Clear();
+
+		Array<Thinker> marks;
+		foreach (th : ThinkerIterator.Create("MultiplayerDeathMark"))
+			marks.Push(th);
+
+		foreach (mark : marks)
+			mark.Destroy();
 	}
 
 	private void ResetMap()
@@ -367,8 +384,8 @@ class MultiplayerLivesManager : Thinker
 			{
 				for (int j; j < MAXPLAYERS; ++j)
 				{
-					if (playerRespawnTimes[j] > 0)
-						--playerRespawnTimes[j];
+					if (pInfo[j].RespawnTime > 0)
+						--pInfo[j].RespawnTime;
 				}
 			}
 
@@ -394,7 +411,7 @@ class MultiplayerLivesManager : Thinker
 				
 		lives += toAdd;
 		for (int i; i < MAXPLAYERS; ++i)
-			playerLives[i] += toAdd;
+			pInfo[i].Lives += toAdd;
 	}
 	
 	void PlayerDied(int pNum)
@@ -404,14 +421,63 @@ class MultiplayerLivesManager : Thinker
 
 		if (mpp_survivaltype == SURV_RESPAWN)
 		{
-			playerRespawnTimes[pNum] = Max(int(ceil(mpp_respawntime * GameTicRate)), 0);
+			pInfo[pNum].RespawnTime = Max(int(ceil(mpp_respawntime * GameTicRate)), 0);
 			return;
 		}
 		
 		if (mpp_individuallives)
-			--playerLives[pNum];
-		else
+		{
+			if (pInfo[pNum].Lives > 0)
+				--pInfo[pNum].Lives;
+		}
+		else if (lives > 0)
+		{
 			--lives;
+		}
+	}
+
+	void CheckDeathMark(int pNum)
+	{
+		if (!mpp_survival || !mpp_preservedeath || mpp_survivaltype == SURV_IRONMAN || mpp_survivaltype == SURV_RESPAWN)
+			return;
+
+		pInfo[pNum].bDead = GetLives(pNum) <= 0;
+	}
+
+	void ApplyDeathMark(int pNum)
+	{
+		if (!mpp_survival)
+			return;
+
+		if (pInfo[pNum].bDead && (mpp_survivaltype == SURV_CLASSIC || mpp_survivaltype == SURV_MODERN))
+			MultiplayerDeathMark.Create(pNum);
+
+		pInfo[pNum].RespawnTime = 0;
+		pInfo[pNum].bDead = false;
+	}
+}
+
+class MultiplayerDeathMark : Thinker
+{
+	private int player;
+
+	static MultiplayerDeathMark Create(int player)
+	{
+		if (!PlayerInGame[player] || Players[player].Health <= 0)
+			return null;
+
+		let dm = new("MultiplayerDeathMark");
+		dm.player = player;
+		dm.ChangeStatNum(STAT_FIRST_THINKING);
+		return dm;
+	}
+
+	override void PostBeginPlay()
+	{
+		if (PlayerInGame[player] && Players[player].Health > 0)
+			Players[player].mo.DamageMobj(null, null, Players[player].mo.Health, 'None', DMG_FORCED);
+
+		Destroy();
 	}
 }
 
@@ -464,6 +530,16 @@ class MultiplayerHandler : StaticEventHandler
             	AddLivesDamage(dmg);
         }
     }
+
+	override void PlayerSpawned(PlayerEvent e)
+	{
+		ApplyDeathMark(e.PlayerNumber);
+	}
+
+	override void PlayerRespawned(PlayerEvent e)
+	{
+		CheckDeathMark(e.PlayerNumber);
+	}
 
 	override bool PlayerRespawning(PlayerEvent e)
 	{
@@ -927,14 +1003,26 @@ class MultiplayerHandler : StaticEventHandler
 	
 	void ResetLives()
 	{
-        if (mpp_resetlives && IsCoop())
-            GetLivesManager().Reset();
+		if (mpp_resetlives && IsCoop())
+			GetLivesManager().Reset();
 	}
 	
 	void UpdateLives()
 	{
 		if (IsCoop())
             GetLivesManager().UpdateGame();
+	}
+
+	void CheckDeathMark(int pNum)
+	{
+		if (IsCoop())
+			GetLivesManager().CheckDeathMark(pNum);
+	}
+
+	void ApplyDeathMark(int pNum)
+	{
+		if (IsCoop())
+			GetLivesManager().ApplyDeathMark(pNum);
 	}
 
     void RemoveLives(int pNum)
