@@ -492,9 +492,23 @@ class MultiplayerHandler : StaticEventHandler
 
 	// Overrides
 
+	protected int LastCluster;
+
+	override void NewGame()
+	{
+		LastCluster = 0;
+	}
+
 	override void WorldLoaded(WorldEvent e)
     {
-		// TODO: This probably breaks hubs...
+		if (Level.ClusterFlags & LevelLocals.CLUSTER_HUB)
+		{
+			if (Level.Cluster == LastCluster)
+				return;
+
+			LastCluster = Level.Cluster;
+		}
+
         if (!e.IsReopen && !e.IsSaveGame)
             ResetLives();
     }
