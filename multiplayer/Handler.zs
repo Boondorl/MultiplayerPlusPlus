@@ -936,6 +936,9 @@ class MultiplayerHandler : StaticEventHandler
             if (side == SIDE_INSIDE)
             {
                 string title = mo.GetCharacterName();
+                title.StripLeftRight();
+                if (!title)
+                    title = mo.GetClassName();
                 double wOfs = ConFont.StringWidth(title) * 0.5 * fScale.x;
                 Screen.DrawText(ConFont, -1, coord.x-wOfs, coord.y-hOfs, title,
                                 DTA_ScaleX, fScale.x, DTA_ScaleY, fScale.y, DTA_Color, col);
