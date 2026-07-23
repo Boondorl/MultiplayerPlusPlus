@@ -78,7 +78,8 @@ class MultiplayerPingMarker : MapMarker
 	override void PostBeginPlay()
 	{
 		Super.PostBeginPlay();
-
+		if (!Master) return;
+		Array<State> checked;
 		SpriteID spr;
 		State head = Master.SpawnState;
 		State cur = head;
@@ -91,8 +92,20 @@ class MultiplayerPingMarker : MapMarker
 			else
 				spr = cur.Sprite;
 
+			checked.Push(cur);
 			cur = cur.NextState;
-			if (cur == head)
+
+			bool doBreak = false;
+			foreach(chk : checked)
+			{
+				if (cur == chk)
+				{
+					doBreak = true;
+					break;
+				}
+			}
+
+			if (doBreak)
 				break;
 		}
 
